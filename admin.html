@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>AS Coin - Admin Panel</title>
+  <style>
+    body {
+      background-color: #111;
+      color: white;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 30px;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    form {
+      max-width: 400px;
+      margin: 0 auto;
+      background: #1c1c1c;
+      padding: 20px;
+      border-radius: 8px;
+    }
+    label {
+      display: block;
+      margin-top: 15px;
+      font-weight: bold;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      box-sizing: border-box;
+      border-radius: 4px;
+      border: none;
+      font-size: 14px;
+    }
+    button {
+      margin-top: 20px;
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+      background: #00cc88;
+      border: none;
+      color: white;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    button:hover {
+      background: #00aa77;
+    }
+    p.info {
+      text-align: center;
+      margin-top: 15px;
+    }
+    a {
+      color: #00cc88;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>AS Coin - Admin Panel</h1>
+  <form id="entryForm">
+    <label for="entryTime">Date/Time:</label>
+    <input type="datetime-local" id="entryTime" required />
+    <label for="income">Income (₹):</label>
+    <input type="number" id="income" placeholder="0" value="0" min="0" />
+    <label for="expense">Expense (₹):</label>
+    <input type="number" id="expense" placeholder="0" value="0" min="0" />
+    <button type="submit">Add Entry</button>
+  </form>
+  <p class="info">
+    View the <a href="index.html" target="_blank">Chart Page</a>
+  </p>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js";
+    import { getDatabase, ref, get, set, child } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAys8PZiPicAt2KxNztYfauESj4hAua-Jo",
+      authDomain: "as-coin-a4fe6.firebaseapp.com",
+      databaseURL: "https://as-coin-a4fe6-default-rtdb.firebaseio.com",
+      projectId: "as-coin-a4fe6",
+      storageBucket: "as-coin-a4fe6.appspot.com",
+      messagingSenderId: "258845993448",
+      appId: "1:258845993448:web:bd60d159f2ad293e88dc5d",
+      measurementId: "G-9EN2EV1ECZ"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const entryForm = document.getElementById('entryForm');
+
+    async function loadFromFirebase() {
+      const snapshot = await get(child(ref(db), 'asCoinData'));
+      if (snapshot.exists()) {
+        return snapshot.val();
+      }
+      return { price: 158, candles: [] };
+    }
+
+    async function saveToFirebase(data) {
+      await set(ref(db, 'asCoinData'), data);
+    }
+
+    entryForm.addEventListener('submit', async e => {
+      e.preventDefault();
+
+      const dateStr = document.getElementById('entryTime').value;
+      const income = parseFloat(document.getElementById('income').value) || 0;
+      const expense = parseFloat(document.getElementById('expense').value) || 0;
+
+      if (!dateStr) {
+        alert("Please select a date and time.");
+        return;
+      }
+
+      if (income === 0 && expense === 0) {
+        alert("Please enter either income or expense.");
+        return;
+      }
+
+      const entryTime = new Date(dateStr);
+      entryTime.setSeconds(0, 0);
+
+      let data = await loadFromFirebase();
+      let { price, candles } = data;
+
+      let candle = candles.find(c => new Date(c.time).getTime() === entryTime.getTime());
+
+      if (!candle) {
+        candle = {
+          time: entryTime,
+          open: price,
+          high: price,
+          low: price,
+          close: price
+        };
+        candles.push(candle);
+        candles.sort((a, b) => new Date(a.time) - new Date(b.time));
+        if (candles.length > 60) candles.shift();
+      }
+
+      let newPrice = candle.close + income - expense;
+      if (newPrice < 0) newPrice = 0;
+
+      candle.close = newPrice;
+      candle.high = Math.max(candle.high, newPrice);
+      candle.low = Math.min(candle.low, newPrice);
+
+      if (candles.length === 0 || entryTime >= new Date(candles[candles.length - 1].time)) {
+        price = newPrice;
+      }
+
+      data.price = price;
+      data.candles = candles;
+      await saveToFirebase(data);
+
+      alert(`Entry added. New price: ₹${newPrice.toFixed(2)}`);
+      entryForm.reset();
+    });
+  </script>
+</body>
+</html>
