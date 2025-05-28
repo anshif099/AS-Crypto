@@ -1,30 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>AS Coin - Candlestick Chart</title>
-<style>
-  html, body {
-    margin: 0; padding: 0; height: 100%;
-    background-color: #111;
-    color: white;
-    font-family: Arial, sans-serif;
-    overflow: hidden;
-  }
-  header {
-    text-align: center;
-    font-size: 24px;
-    padding: 10px;
-    background-color: #222;
-  }
-  #chartCanvas {
-    display: block;
-    background-color: black;
-    margin: 0 auto;
-    width: 100vw;
-    height: calc(100vh - 50px);
-  }
-</style>
+  <meta charset="UTF-8" />
+  <title>AS Coin - Candlestick Chart</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background-color: #111;
+      color: white;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+    header {
+      text-align: center;
+      font-size: 24px;
+      padding: 10px;
+      background-color: #222;
+    }
+    #chartCanvas {
+      display: block;
+      background-color: black;
+      margin: 0 auto;
+      width: 100vw;
+      height: calc(100vh - 50px);
+      cursor: grab;
+    }
+  </style>
 </head>
 <body>
 <header>AS Coin - Candlestick Chart (&#8377;)</header>
@@ -32,7 +35,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js";
-  import { getDatabase, ref, get, set, onValue } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-database.js";
+  import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-database.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyAys8PZiPicAt2KxNztYfauESj4hAua-Jo",
@@ -52,24 +55,53 @@
   const ctx = canvas.getContext("2d");
 
   const margin = { left: 60, right: 20, top: 30, bottom: 50 };
-  let chartWidth, chartHeight;
   let price = 158;
   let candles = [];
   let currentCandle = null;
   let currentCandleTime = null;
+
+  let offsetX = 0;
+  let isDragging = false;
+  let dragStartX = 0;
+  let initialOffsetX = 0;
 
   function resizeCanvas() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight - 50;
     drawChart();
   }
-  window.addEventListener('resize', resizeCanvas);
+
+  window.addEventListener("resize", resizeCanvas);
+
+  canvas.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    dragStartX = e.clientX;
+    initialOffsetX = offsetX;
+    canvas.style.cursor = "grabbing";
+  });
+
+  canvas.addEventListener("mousemove", (e) => {
+    if (isDragging) {
+      const dx = e.clientX - dragStartX;
+      offsetX = initialOffsetX + dx;
+      drawChart();
+    }
+  });
+
+  canvas.addEventListener("mouseup", () => {
+    isDragging = false;
+    canvas.style.cursor = "grab";
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    isDragging = false;
+    canvas.style.cursor = "grab";
+  });
 
   function drawChart() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    chartWidth = canvas.width - margin.left - margin.right;
-    chartHeight = canvas.height - margin.top - margin.bottom;
+    const chartWidth = canvas.width - margin.left - margin.right;
+    const chartHeight = canvas.height - margin.top - margin.bottom;
 
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -106,11 +138,15 @@
     }
 
     const candleWidth = 8;
-    const spacing = (chartWidth - candles.length * candleWidth) / (candles.length - 1 || 1);
+    const spacing = 4;
+    const totalWidth = candles.length * (candleWidth + spacing);
 
-    candles.forEach((candle, i) => {
-      const x = margin.left + i * (candleWidth + spacing);
+    for (let i = 0; i < candles.length; i++) {
+      const candle = candles[i];
+      const x = margin.left + offsetX + i * (candleWidth + spacing);
       const scaleY = val => margin.top + ((maxPrice - val) / priceRange) * chartHeight;
+
+      if (x < margin.left - candleWidth || x > canvas.width - margin.right) continue;
 
       const openY = scaleY(candle.open);
       const closeY = scaleY(candle.close);
@@ -129,46 +165,106 @@
       const bodyTop = Math.min(openY, closeY);
       const bodyHeight = Math.max(1, Math.abs(openY - closeY));
       ctx.fillRect(x, bodyTop, candleWidth, bodyHeight);
-    });
 
-    ctx.fillStyle = "white";
-    ctx.font = "12px Arial";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-
-    const step = Math.max(1, Math.floor(candles.length / 10));
-    for (let i = 0; i < candles.length; i += step) {
-      const candle = candles[i];
-      const x = margin.left + i * (candleWidth + spacing) + candleWidth / 2;
-      const label = new Date(candle.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      ctx.fillText(label, x, canvas.height - margin.bottom + 5);
-    }
-  }
-
-  async function loadFromFirebase() {
-    const snapshot = await get(ref(db, "asCoinData"));
-    if (snapshot.exists()) {
-      const data = snapshot.val();
-      price = data.price;
-      candles = data.candles.map(c => ({
-        ...c,
-        time: new Date(c.time)
-      }));
-      if (candles.length > 0) {
-        currentCandle = candles[candles.length - 1];
-        currentCandleTime = new Date(currentCandle.time);
+      if (i % 10 === 0) {
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        const label = new Date(candle.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        ctx.fillText(label, x + candleWidth / 2, canvas.height - margin.bottom + 5);
       }
     }
   }
 
-  async function saveToFirebase() {
-    await set(ref(db, "asCoinData"), {
+  // LocalStorage key name
+  const LS_KEY = "asCoinDataLocal";
+
+  async function loadFromFirebase() {
+    try {
+      const snapshot = await get(ref(db, "asCoinData"));
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        price = data.price;
+        candles = data.candles.map(c => ({
+          ...c,
+          time: new Date(c.time)
+        }));
+        if (candles.length > 0) {
+          currentCandle = candles[candles.length - 1];
+          currentCandleTime = new Date(currentCandle.time);
+        }
+        // Also save to localStorage for fallback
+        localStorage.setItem(LS_KEY, JSON.stringify({
+          price,
+          candles: data.candles
+        }));
+      } else {
+        // No data in Firebase, try localStorage fallback
+        loadFromLocalStorageOrInit();
+      }
+    } catch (err) {
+      // If error in Firebase fetch, fallback to localStorage
+      loadFromLocalStorageOrInit();
+    }
+  }
+
+  function loadFromLocalStorageOrInit() {
+    const lsData = localStorage.getItem(LS_KEY);
+    if (lsData) {
+      try {
+        const data = JSON.parse(lsData);
+        price = data.price;
+        candles = data.candles.map(c => ({
+          ...c,
+          time: new Date(c.time)
+        }));
+        if (candles.length > 0) {
+          currentCandle = candles[candles.length - 1];
+          currentCandleTime = new Date(currentCandle.time);
+        }
+      } catch {
+        initializeDefaultData();
+      }
+    } else {
+      initializeDefaultData();
+    }
+  }
+
+  function initializeDefaultData() {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    currentCandle = {
+      time: now,
+      open: price,
+      high: price,
+      low: price,
+      close: price
+    };
+    currentCandleTime = now;
+    candles = [currentCandle];
+    saveToFirebaseAndLocalStorage();
+  }
+
+  async function saveToFirebaseAndLocalStorage() {
+    try {
+      await set(ref(db, "asCoinData"), {
+        price,
+        candles: candles.map(c => ({
+          ...c,
+          time: c.time.toISOString()
+        }))
+      });
+    } catch {
+      // ignore firebase save error, we still save localStorage below
+    }
+    // Save to localStorage always
+    localStorage.setItem(LS_KEY, JSON.stringify({
       price,
       candles: candles.map(c => ({
         ...c,
         time: c.time.toISOString()
       }))
-    });
+    }));
   }
 
   function startNewCandle() {
@@ -176,6 +272,12 @@
     now.setSeconds(0, 0);
 
     if (currentCandleTime && now.getTime() === currentCandleTime.getTime()) return;
+
+    if (candles.length && candles[candles.length - 1].time.getTime() === now.getTime()) {
+      currentCandle = candles[candles.length - 1];
+      currentCandleTime = new Date(currentCandle.time);
+      return;
+    }
 
     currentCandle = {
       time: now,
@@ -185,9 +287,9 @@
       close: price
     };
     candles.push(currentCandle);
-    if (candles.length > 60) candles.shift();
+    if (candles.length > 100) candles.shift();
     currentCandleTime = now;
-    saveToFirebase();
+    saveToFirebaseAndLocalStorage();
     drawChart();
   }
 
@@ -197,7 +299,7 @@
     currentCandle.close = newPrice;
     currentCandle.high = Math.max(currentCandle.high, newPrice);
     currentCandle.low = Math.min(currentCandle.low, newPrice);
-    saveToFirebase();
+    saveToFirebaseAndLocalStorage();
     drawChart();
   }
 
@@ -209,12 +311,9 @@
 
   async function init() {
     await loadFromFirebase();
-    if (!currentCandle) startNewCandle();
-
     resizeCanvas();
     drawChart();
-
-    setInterval(simulatePriceTick, 2000); // simulate price tick every 2s
+    setInterval(simulatePriceTick, 2000);
 
     const now = new Date();
     const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
